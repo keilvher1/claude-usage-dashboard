@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claude Usage Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    * { font-family: 'Inter', sans-serif; }
+    body { background: #0f0f14; color: #e4e4e7; }
+    .glass { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(12px); }
+    .glow-orange { box-shadow: 0 0 20px rgba(255,140,50,0.15); }
+    .gradient-text { background: linear-gradient(135deg, #ff8c32, #ff6b6b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .card-hover { transition: all 0.3s; }
+    .card-hover:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); }
+    .tab-active { background: linear-gradient(135deg, #ff8c32, #ff6b6b); color: white; }
+    .tab-inactive { background: rgba(255,255,255,0.05); color: #a1a1aa; }
+    .tab-inactive:hover { background: rgba(255,255,255,0.1); }
+    .pulse { animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useCallback } = React;
+    const { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } = Recharts;
+    const SB_URL = "https://wcgxbpwhneodlcgcqpzz.supabase.co";
+    const formatNumber = (n) => { if (n >= 1000000) return (n/1000000).toFixed(1)+"M"; if (n >= 1000) return (n/1000).toFixed(1)+"K"; return n?.toString() || "0"; };
+    const formatTime = (ts, g) => { const d = new Date(ts); if (g==="day") return d.getMonth()+1+"/"+d.getDate(); return d.getMonth()+1+"/"+d.getDate()+" "+String(d.getHours()).padStart(2,"0")+":00"; };
+    const C = { orange:"#ff8c32", red:"#ff6b6b", blue:"#60a5fa", green:"#34d399", purple:"#a78bfa" };
+    function StatCard({title,value,sub,icon,color}) { return (<div className="glass rounded-xl p-5 card-hover"><div className="flex items-center justify-between mb-3"><span className="text-sm text-gray-400">{title}</span><span style={{color}} className="text-xl">{icon}</span></div><div className="text-2xl font-bold mb-1" style={{color}}>{value}</div>{sub && <div className="text-xs text-gray-500">{sub}</div>}</div>); }
+    function CustomTooltip({active,payload,label,groupBy}) { if(!active||!payload?.length) return null; return (<div className="glass rounded-lg p-3 text-xs" style={{background:"rgba(15,15,20,0.95)",border:"1px solid rgba(255,255,255,0.1)"}}><p className="text-gray-300 mb-2 font-medium">{formatTime(label,groupBy)}</p>{payload.map((p,i)=>(<p key={i} className="flex justify-between gap-4" style={{color:p.color}}><span>{p.name}:</span><span className="font-semibold">{formatNumber(p.value)}</span></p>))}</div>); }
+    function App() {
+      const [period,setPeriod] = useState("7d");
+      const [data,setData] = useState(null);
+      const [loading,setLoading] = useState(true);
+      const [chartType,setChartType] = useState("requests");
+      const [lastUpdated,setLastUpdated] = useState(null);
+      const groupBy = period==="30d"?"day":"hour";
+      const fetchData = useCallback(async()=>{setLoading(true);try{const r=await fetch(SB_URL+"/functions/v1/usage-stats?period="+period+"&group_by="+groupBy);const j=await r.json();setData(j);setLastUpdated(new Date());}catch(e){console.error(e);}setLoading(false);},[period,groupBy]);
+      useEffect(()=>{fetchData();},[fetchData]);
+      useEffect(()=>{const i=setInterval(fetchData,30000);return()=>clearInterval(i);},[fetchData]);
+      const timeline=data?.timeline||[];const summary=data?.summary||{};
+      const chartData=timeline.map(item=>({...item,time:item.hour||item.day}));
+      const errorRate=summary.total_requests>0?((summary.error_count/summary.total_requests)*100).toFixed(1):"0";
+      return (<div className="min-h-screen p-4 md:p-8 max-w-7xl mx-auto">
+        <header className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4"><div><h1 className="text-3xl font-bold"><span className="gradient-text">Claude</span> Usage Dashboard</h1><p className="text-gray-500 text-sm mt-1">API 사용량을 시간대별로 모니터링합니다{lastUpdated && <span className="ml-2">· {lastUpdated.toLocaleTimeString("ko-KR")}</span>}</p></div><div className="flex items-center gap-3"><button onClick={fetchData} className="glass rounded-lg px-3 py-2 text-sm hover:bg-white hover:bg-opacity-10">↻</button><div className="flex gap-2">{[{v:"24h",l:"24시간"},{v:"7d",l:"7일"},{v:"30d",l:"30일"}].map(o=>(<button key={o.v} onClick={()=>setPeriod(o.v)} className={"px-4 py-2 rounded-lg text-sm font-medium "+(period===o.v?"tab-active":"tab-inactive")}>{o.l}</button>))}</div></div></header>
+        {loading&&!data?<div className="flex items-center justify-center h-64"><div className="text-gray-400 pulse">데이터를 불러오는 중...</div></div>:<>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <StatCard title="총 요청 수" value={formatNumber(summary.total_requests)} sub={"에러 "+summary.error_count+"건 ("+errorRate+"%)"} icon="⚡" color={C.orange}/>
+          <StatCard title="총 토큰" value={formatNumber(summary.total_tokens)} sub={"입력 "+formatNumber(summary.total_input_tokens)+" · 출력 "+formatNumber(summary.total_output_tokens)} icon="◎" color={C.blue}/>
+          <StatCard title="평균 응답시간" value={(summary.avg_response_time||0)+"ms"} sub="요청당 평균" icon="◴" color={C.green}/>
+          <StatCard title="에러율" value={errorRate+"%"} sub={(summary.error_count||0)+"건 실패"} icon="△" color={parseFloat(errorRate)>5?C.red:C.green}/>
+        </div>
+        <div className="flex gap-2 mb-4">{[{k:"requests",l:"요청 수"},{k:"tokens",l:"토큰 사용량"},{k:"both",l:"통합 뷰"}].map(t=>(<button key={t.k} onClick={()=>setChartType(t.k)} className={"px-3 py-1.5 rounded-lg text-xs font-medium "+(chartType===t.k?"tab-active":"tab-inactive")}>{t.l}</button>))}</div>
+        {(chartType==="requests"||chartType==="both")&&<div className="glass rounded-xl p-5 mb-6 glow-orange"><h2 className="text-lg font-semibold mb-4 text-gray-200">시간대별 요청 수</h2><ResponsiveContainer width="100%" height={320}><AreaChart data={chartData}><defs><linearGradient id="gO" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.orange} stopOpacity={0.4}/><stop offset="100%" stopColor={C.orange} stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/><XAxis dataKey="time" tickFormatter={v=>formatTime(v,groupBy)} stroke="#555" tick={{fontSize:11}} interval="preserveStartEnd"/><YAxis stroke="#555" tick={{fontSize:11}}/><Tooltip content={<CustomTooltip groupBy={groupBy}/>}/><Area type="monotone" dataKey="request_count" stroke={C.orange} fill="url(#gO)" strokeWidth={2} name="요청 수" dot={false}/></AreaChart></ResponsiveContainer></div>}
+        {(chartType==="tokens"||chartType==="both")&&<div className="glass rounded-xl p-5 mb-6"><h2 className="text-lg font-semibold mb-4 text-gray-200">시간대별 토큰 사용량</h2><ResponsiveContainer width="100%" height={320}><AreaChart data={chartData}><defs><linearGradient id="gB" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.blue} stopOpacity={0.4}/><stop offset="100%" stopColor={C.blue} stopOpacity={0}/></linearGradient><linearGradient id="gP" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.purple} stopOpacity={0.4}/><stop offset="100%" stopColor={C.purple} stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/><XAxis dataKey="time" tickFormatter={v=>formatTime(v,groupBy)} stroke="#555" tick={{fontSize:11}} interval="preserveStartEnd"/><YAxis stroke="#555" tick={{fontSize:11}} tickFormatter={formatNumber}/><Tooltip content={<CustomTooltip groupBy={groupBy}/>}/><Legend wrapperStyle={{fontSize:"12px"}}/><Area type="monotone" dataKey="total_input_tokens" stroke={C.blue} fill="url(#gB)" strokeWidth={2} name="입력 토큰" dot={false} stackId="t"/><Area type="monotone" dataKey="total_output_tokens" stroke={C.purple} fill="url(#gP)" strokeWidth={2} name="출력 토큰" dot={false} stackId="t"/></AreaChart></ResponsiveContainer></div>}
+        <div className="glass rounded-xl p-5 mb-6"><h2 className="text-lg font-semibold mb-4 text-gray-200">평균 응답 시간 (ms)</h2><ResponsiveContainer width="100%" height={240}><LineChart data={chartData}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/><XAxis dataKey="time" tickFormatter={v=>formatTime(v,groupBy)} stroke="#555" tick={{fontSize:11}} interval="preserveStartEnd"/><YAxis stroke="#555" tick={{fontSize:11}} unit="ms"/><Tooltip content={<CustomTooltip groupBy={groupBy}/>}/><Line type="monotone" dataKey="avg_response_time" stroke={C.green} strokeWidth={2} name="응답 시간" dot={false}/></LineChart></ResponsiveContainer></div>
+        <div className="glass rounded-xl p-5"><h2 className="text-lg font-semibold mb-3 text-gray-200">API 프록시 사용법</h2><p className="text-sm text-gray-400 mb-3">아래 엔드포인트를 Anthropic API 대신 사용하면 자동으로 사용량이 기록됩니다.</p><div className="bg-black bg-opacity-40 rounded-lg p-4 text-sm font-mono overflow-x-auto"><div className="text-green-400">POST {SB_URL}/functions/v1/claude-proxy</div><div className="mt-2 text-blue-300">Headers: x-api-key: YOUR_ANTHROPIC_KEY</div><div className="mt-2 text-yellow-300">Body: Anthropic API와 동일</div></div><div className="mt-3 text-xs text-gray-500">통계 API: {SB_URL}/functions/v1/usage-stats?period=7d&group_by=hour</div></div>
+        <footer className="text-center text-gray-600 text-xs mt-8 pb-4">Claude Usage Dashboard · Powered by Supabase + Vercel</footer>
+        </>}
+      </div>);
+    }
+    ReactDOM.render(<App />, document.getElementById("root"));
+  </script>
+</body>
+</html>
